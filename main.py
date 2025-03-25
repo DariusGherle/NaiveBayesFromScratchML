@@ -199,3 +199,56 @@ plt.ylabel('True Positive Rate')
 plt.title('Receiver Operating Characteristic')
 plt.legend(loc="lower right")
 plt.show()
+
+# ============== Model Tuning and Cross Validation ================== #
+from sklearn.model_selection import StratifiedKFold
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import roc_auc_score
+
+cleaned_emails_np = np.array(cleaned_emails)
+labels_np = np.array(labels)
+
+k = 10
+k_fold = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
+
+max_features_option = [2000, 4000, 8000]
+smoothing_factor_option = [0.5, 1.0, 1.5, 2.0]
+fit_prior_option = [True, False]
+
+auc_record = {}
+
+for train_indices, test_indices in k_fold.split(cleaned_emails_np, labels_np):
+    X_train, X_test = cleaned_emails_np[train_indices], cleaned_emails_np[test_indices]
+    Y_train, Y_test = labels_np[train_indices], labels_np[test_indices]
+
+    for max_features in max_features_option:
+        if max_features not in auc_record:
+            auc_record[max_features] = {}
+
+        cv_grid = CountVectorizer(stop_words="english", max_features=max_features)
+        term_docs_train = cv_grid.fit_transform(X_train)
+        term_docs_test = cv_grid.transform(X_test)
+
+        for smoothing in smoothing_factor_option:
+            if smoothing not in auc_record[max_features]:
+                auc_record[max_features][smoothing] = {}
+
+            for fit_prior in fit_prior_option:
+                clf = MultinomialNB(alpha=smoothing, fit_prior=fit_prior)
+                clf.fit(term_docs_train, Y_train)
+                prediction_prob = clf.predict_proba(term_docs_test)
+                pos_prob = prediction_prob[:, 1]
+                auc = roc_auc_score(Y_test, pos_prob)
+                previous_auc = auc_record[max_features][smoothing].get(fit_prior, 0.0)
+                auc_record[max_features][smoothing][fit_prior] = previous_auc + auc
+
+# Afișare rezultate
+print("\nModel Tuning Results (AUC mediu din 10 folduri):")
+print(f"{'max_features':<15} {'smoothing':<10} {'fit_prior':<10} {'avg_auc':<10}")
+for max_features, max_feature_record in auc_record.items():
+    for smoothing, smoothing_record in max_feature_record.items():
+        for fit_prior, auc in smoothing_record.items():
+            avg_auc = auc / k
+            print(f"{max_features:<15} {smoothing:<10} {str(fit_prior):<10} {avg_auc:<10.4f}")
+
+
